@@ -88,17 +88,21 @@ function EditForm({ wallet, onSaved }: { wallet: Wallet; onSaved: () => void }) 
         <input value={label} onChange={(e) => setLabel(e.target.value)} />
       </label>
       <div>
-        Active chains:{" "}
-        <select value="" onChange={(e) => toggle(Number(e.target.value))}>
-          <option value="">Toggle chain…</option>
+        <span>Active chains:</span>
+        <ul>
           {CHAINS.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+            <li key={c.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={chainIds.includes(c.id)}
+                  onChange={() => toggle(c.id)}
+                />
+                {chainName(c.id)}
+              </label>
+            </li>
           ))}
-        </select>
-        {"  "}
-        <span>{chainIds.map((id) => chainName(id)).join(", ") || "—"}</span>
+        </ul>
       </div>
       <button type="submit" disabled={save.isPending}>
         {save.isPending ? "Saving…" : "Save"}
