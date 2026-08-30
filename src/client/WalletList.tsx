@@ -62,6 +62,7 @@ function WalletRow({ wallet, onChanged }: { wallet: Wallet; onChanged: () => voi
 function EditForm({ wallet, onSaved }: { wallet: Wallet; onSaved: () => void }) {
   const [label, setLabel] = useState(wallet.label ?? "");
   const [chainIds, setChainIds] = useState(wallet.chains.map((c) => c.chainId));
+  const [chainsOpen, setChainsOpen] = useState(false);
 
   const save = useMutation({
     mutationFn: () =>
@@ -88,21 +89,27 @@ function EditForm({ wallet, onSaved }: { wallet: Wallet; onSaved: () => void }) 
         <input value={label} onChange={(e) => setLabel(e.target.value)} />
       </label>
       <div>
-        <span>Active chains:</span>
-        <ul>
-          {CHAINS.map((c) => (
-            <li key={c.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={chainIds.includes(c.id)}
-                  onChange={() => toggle(c.id)}
-                />
-                {chainName(c.id)}
-              </label>
-            </li>
-          ))}
-        </ul>
+        <span>Active chains:</span>{" "}
+        <button type="button" onClick={() => setChainsOpen((o) => !o)}>
+          {chainIds.length} selected ▾
+        </button>
+        {chainsOpen && (
+          <ul>
+            {CHAINS.map((c) => (
+              <li key={c.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={chainIds.includes(c.id)}
+                    onChange={() => toggle(c.id)}
+                  />
+                  <span>{chainIds.includes(c.id) ? "✓ " : "\u00A0 "}{chainName(c.id)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <button type="submit" disabled={save.isPending}>
         {save.isPending ? "Saving…" : "Save"}
