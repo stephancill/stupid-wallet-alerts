@@ -1,15 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-
-const CURATED_CHAINS: { id: number; name: string }[] = [
-  { id: 1, name: "Ethereum" },
-  { id: 42161, name: "Arbitrum" },
-  { id: 8453, name: "Base" },
-  { id: 10, name: "Optimism" },
-  { id: 137, name: "Polygon" },
-  { id: 100, name: "Gnosis" },
-];
+import { CHAINS } from "../chains";
 
 export function AddWalletForm() {
   const qc = useQueryClient();
@@ -74,7 +66,7 @@ export function AddWalletForm() {
       <fieldset className="max-w-xl">
         <legend>Chains to watch</legend>
         <div className="flex max-w-xl flex-wrap gap-4">
-          {CURATED_CHAINS.map((c) => (
+          {CHAINS.map((c) => (
             <label key={c.id} className="flex items-center gap-2">
               <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
               {c.name}

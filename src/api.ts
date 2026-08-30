@@ -61,10 +61,10 @@ export const api = {
     request<{ ok: boolean }>(`/api/wallets/${encodeURIComponent(address)}`, {
       method: "DELETE",
     }),
-  updateWalletLabel: (address: string, label: string) =>
-    request<{ ok: boolean; label: string | null }>(`/api/wallets/${encodeURIComponent(address)}`, {
+  updateWallet: (address: string, input: { label?: string | null; chainIds?: number[] }) =>
+    request<{ wallet: Wallet }>(`/api/wallets/${encodeURIComponent(address)}`, {
       method: "PATCH",
-      body: JSON.stringify({ label }),
+      body: JSON.stringify(input),
     }),
   listChains: () => request<{ chains: { chainId: number; name: string }[] }>("/api/chains"),
 };

@@ -97,19 +97,65 @@ wallets.delete("/:address", requireUser, async (c) => {
   return c.json({ ok: true });
 });
 
-const updateLabelSchema = z.object({ label: z.string().trim().max(80) });
+const updateWalletSchema = z.object({
+  label: z.string().trim().max(80).nullable().optional(),
+  chainIds: z.array(z.number().int().positive()).min(1).max(50).optional(),
+});
 
-/** Edit the label of a watched wallet. */
-wallets.patch("/:address", requireUser, zValidator("json", updateLabelSchema), async (c) => {
+/** Edit a watched wallet: label and/or active chains (syncs upstream subs). */
+wallets.patch("/:address", requireUser, zValidator("json", updateWalletSchema), async (c) => {
   const user = c.get("user");
   const addr = (c.req.param("address") || "").toLowerCase();
-  const { label } = c.req.valid("json");
+  const body = c.req.valid("json");
 
-  const row = await walletRow(c.env.WA_DB, addr, user.id);
-  if (!row) return c.json({ error: "not found" }, 404);
+  const current = (await listWallets(c.env.WA_DB, user.id)).find((r) => r.address === addr);
+  if (!current) return c.json({ error: "not found" }, 404);
 
-  await setWalletLabel(c.env.WA_DB, addr, user.id, label || null);
-  return c.json({ ok: true, label: label || null });
+  if (body.label !== undefined) {
+    await setWalletLabel(c.env.WA_DB, addr, user.id, body.label);
+  }
+
+  if (body.chainIds) {
+    const client = webhooksClient(c.env.WA_API_KEY, c.env.WA_WEBHOOK_ID);
+    const existing = current.chains.map((ch) => ch.chainId);
+    const desired = body.chainIds;
+
+    // Subscribe newly added chains.
+    const toAdd = desired.filter((id) => !existing.includes(id));
+    if (toAdd.length > 0) {
+      const created = await client.createSubscriptions(addr, toAdd);
+      for (const sub of created) {
+        await upsertChain(c.env.WA_DB, addr, {
+          chainId: sub.chainId,
+          status: sub.status ?? "error",
+          externalSubscriptionId: sub.id ?? null,
+          activeFromBlock: sub.activeFromBlock ?? null,
+          message: sub.message ?? sub.reason ?? null,
+        });
+      }
+    }
+
+    // Deactivate removed chains (best-effort) and drop their rows.
+    const toRemove = existing.filter((id) => !desired.includes(id));
+    for (const chainId of toRemove) {
+      const sub = current.chains.find((ch) => ch.chainId === chainId);
+      if (sub?.externalSubscriptionId) {
+        await client.deactivateSubscription(sub.externalSubscriptionId).catch(() => {});
+      }
+      await c.env.WA_DB.prepare(
+        "DELETE FROM wallet_chains WHERE wallet_address = ? AND chain_id = ?",
+      )
+        .bind(addr, chainId)
+        .run();
+    }
+
+    await c.env.WA_DB.prepare("UPDATE wallets SET chain_ids = ? WHERE address = ? AND user_id = ?")
+      .bind(JSON.stringify(desired), addr, user.id)
+      .run();
+  }
+
+  const updated = (await listWallets(c.env.WA_DB, user.id)).find((r) => r.address === addr);
+  return c.json({ wallet: updated });
 });
 
 /** Public chain list from the provider (cached per edge), for the add form. */
