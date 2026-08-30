@@ -1,5 +1,7 @@
 # stupid wallet alerts
 
+[![Live app](https://img.shields.io/badge/try%20it-wallet--alerts.stupidtech.net-2563eb?style=flat-square&logo=cloudflare)](https://wallet-alerts.stupidtech.net)
+
 🔔 Email alerts for your EVM wallets — **stupid wallet alerts**.
 
 Sign in with your email, add wallet addresses to watch, and get an email
