@@ -67,6 +67,11 @@ subscription state, and an event-dedupe cache.
 - Wallet labels: editable after registration — `PATCH /api/wallets/:address`
   (`{label}`) + inline label editor per wallet card in the UI (labels otherwise
   were only settable at add time).
+- Deliverability: sending moved from the brand-new subdomain to a dedicated
+  sending domain `alerts.stupidtech.net`; `EMAIL_FROM=alerts@alerts.stupidtech.net`
+  with `Reply-To: hi@stupidtech.net` on every message. Email Sending for the
+  new domain is enabled + DNS live (SPF/DKIM/DMARC p=reject/MX). mail-tester
+  reports 10/10 & "properly authenticated" for both domains.
 
 ### Remaining gotchas
 

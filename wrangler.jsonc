@@ -31,7 +31,7 @@
   "vars": {
     "WA_WEBHOOK_ID": "wh_c88349caa126894badf652bf",
     "APP_BASE_URL": "https://wallet-alerts.stupidtech.net",
-    "EMAIL_FROM": "alert@wallet-alerts.stupidtech.net"
+    "EMAIL_FROM": "alerts@alerts.stupidtech.net"
   },
   "compatibility_flags": ["nodejs_compat"]
 }

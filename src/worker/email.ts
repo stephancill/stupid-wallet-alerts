@@ -156,6 +156,7 @@ export async function sendEmail(
 ): Promise<void> {
   await env.EMAIL.send({
     from: { email: env.EMAIL_FROM, name: "stupid wallet alerts" },
+    replyTo: "hi@stupidtech.net",
     to,
     subject: message.subject,
     text: message.text,

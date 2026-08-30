@@ -8,4 +8,4 @@ WA_SIGNING_SECRET=
 APP_BASE_URL=https://wallet-alerts.stupidtech.net
 
 # Email sender (must be verified for the Cloudflare Email Service from-domain)
-EMAIL_FROM=alert@wallet-alerts.stupidtech.net
+EMAIL_FROM=alerts@alerts.stupidtech.net

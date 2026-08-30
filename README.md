@@ -59,7 +59,8 @@ bun run lint && bun run format
 | `WA_WEBHOOK_ID` | var | our webhook id on wallet-webhooks |
 | `WA_SIGNING_SECRET` | secret | webhook `signingSecret` (verify inbound) |
 | `APP_BASE_URL` | var | public base URL |
-| `EMAIL_FROM` | var | verified sender address (Email Service) |
+| `EMAIL_FROM` | var | verified sender address: `alerts@alerts.stupidtech.net` (Email Sending domain `alerts.stupidtech.net`) |
+| ─ | ─ | `Reply-To: hi@stupidtech.net` is set on every outbound message |
 
 ## Status
 
