@@ -1,0 +1,11 @@
+# stupid wallet alerts env vars (copy to .dev.vars for local dev; never commit .dev.vars)
+# --- Secrets / config for the wallet-webhooks service (provisioned via its operator API) ---
+WA_API_KEY=<customer API key issued to the wallet-alerts account>
+WA_WEBHOOK_ID=wh_...
+WA_SIGNING_SECRET=
+
+# Public base URL of this app
+APP_BASE_URL=https://wallet-alerts.stupidtech.net
+
+# Email sender (must be verified for the Cloudflare Email Service from-domain)
+EMAIL_FROM=alert@wallet-alerts.stupidtech.net

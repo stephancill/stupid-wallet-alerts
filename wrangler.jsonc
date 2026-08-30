@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wallet-alerts",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-08-27",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "wallet-alerts.stupidtech.net",
+      "zone_name": "stupidtech.net",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "WA_DB",
+      "database_name": "wallet-alerts-db",
+      "database_id": "18125da1-baf3-4c8e-9010-3caf8b0dfe1f",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "vars": {
+    "WA_WEBHOOK_ID": "wh_c88349caa126894badf652bf",
+    "APP_BASE_URL": "https://wallet-alerts.stupidtech.net",
+    "EMAIL_FROM": "alert@wallet-alerts.stupidtech.net"
+  },
+  "compatibility_flags": ["nodejs_compat"]
+}

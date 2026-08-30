@@ -1,0 +1,4 @@
+/* Tailwind for LAYOUT ONLY. Import theme variables + utilities, but NOT
+   preflight — so form controls/buttons keep their native browser styling. */
+@import "tailwindcss/theme";
+@import "tailwindcss/utilities";
