@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "../api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function SignIn() {
   const [email, setEmail] = useState("");
@@ -13,53 +18,60 @@ export function SignIn() {
       setSent(true);
       qc.invalidateQueries({ queryKey: ["session"] });
     },
-    onError: () => setSent(false),
+    onError: () => {
+      setSent(false);
+      toast.error("Couldn't send the sign-in link. Please try again.");
+    },
   });
 
   if (sent) {
     return (
-      <section className="max-w-md space-y-2">
-        <h1 className="text-xl">Check your inbox</h1>
-        <p>
-          We sent a sign-in link to <strong>{email}</strong>. Open it to get started. It expires in
-          30 minutes.
-        </p>
-      </section>
+      <Card className="max-w-md">
+        <CardHeader>
+          <CardTitle>Check your inbox</CardTitle>
+          <CardDescription>
+            We sent a sign-in link to <strong>{email}</strong>. Open it to get started. It expires
+            in 30 minutes.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     );
   }
 
   return (
-    <section className="max-w-md space-y-4">
-      <header>
-        <h1 className="text-xl">Sign in with email</h1>
-        <p>Add wallet addresses to monitor and get emailed when they move.</p>
-      </header>
+    <Card className="max-w-md">
+      <CardHeader>
+        <CardTitle>Sign in with email</CardTitle>
+        <CardDescription>
+          Add wallet addresses to monitor and get emailed when they move.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit.mutate();
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+          </div>
 
-      <form
-        className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit.mutate();
-        }}
-      >
-        <label htmlFor="email" className="block">
-          Email
-        </label>
-        <input
-          id="email"
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-          className="block w-full border p-2"
-        />
-        {submit.isError && <p role="alert">Something went wrong. Try again.</p>}
-        <button type="submit" disabled={submit.isPending}>
-          {submit.isPending ? "Sending…" : "Email me a sign-in link"}
-        </button>
-      </form>
-    </section>
+          <Button type="submit" disabled={submit.isPending} className="w-full">
+            {submit.isPending ? "Sending…" : "Email me a sign-in link"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

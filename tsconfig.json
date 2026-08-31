@@ -12,7 +12,11 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["@cloudflare/workers-types", "vite/client"]
+    "types": ["@cloudflare/workers-types", "vite/client", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "vite.config.ts", "wrangler.jsonc"]
 }
