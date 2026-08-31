@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { verifyWebhookSignature as verifyHmac } from "../lib/crypto";
-import { buildNotificationEmail, enrichEvent, sendEmail, type EventData } from "../email";
+import {
+  buildNotificationEmail,
+  enrichEvent,
+  sendEmail,
+  shouldNotifyEmail,
+  type EventData,
+} from "../email";
 import type { Env } from "../lib/env";
 import { eventSeen, ownerOfWallet, recordEvent } from "../wallet-store";
 
@@ -37,21 +43,24 @@ webhookRoute.post("/", async (c) => {
     const resolved = await enrichEvent(c.env, data).catch(() => ({
       effects: [],
     }));
-    const owners = await ownerOfWallet(c.env.WA_DB, data.trackedAddress.toLowerCase());
-    for (const owner of owners) {
-      await sendEmail(
-        c.env,
-        owner.email,
-        buildNotificationEmail({
-          email: owner.email,
-          walletLabel: owner.label,
-          data,
-          resolved,
-          appUrl: c.env.APP_BASE_URL,
-        }),
-      ).catch(() => {
-        // one bad recipient must not block the rest; the ledger offers retries
-      });
+    // Drop pure ERC-20 dust (≤ $0.01 received) so worthless token receipts don't spam.
+    if (shouldNotifyEmail(data, resolved)) {
+      const owners = await ownerOfWallet(c.env.WA_DB, data.trackedAddress.toLowerCase());
+      for (const owner of owners) {
+        await sendEmail(
+          c.env,
+          owner.email,
+          buildNotificationEmail({
+            email: owner.email,
+            walletLabel: owner.label,
+            data,
+            resolved,
+            appUrl: c.env.APP_BASE_URL,
+          }),
+        ).catch(() => {
+          // one bad recipient must not block the rest; the ledger offers retries
+        });
+      }
     }
   }
 

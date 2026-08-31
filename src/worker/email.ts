@@ -212,6 +212,54 @@ export async function enrichEvent(
   return { effects, native };
 }
 
+/**
+ * Minimum USD value we must be able to ascribe to received ERC-20 tokens before
+ * we email about an event. Rejects dust / unpriced ERC-20 receipt spam.
+ */
+const MIN_RECEIVED_VALUE_USD = 0.01;
+
+/**
+ * Decide whether an event warrants an email. We skip pure ERC-20 dust: if the
+ * only legs are received ERC-20 tokens totalling ≤ $0.01 (or unpriced), there's
+ * nothing worth notifying. Any other priced or non-ERC-20 activity — incoming
+ * native value, outgoing legs, ERC-721s, or a received ERC-20 over the threshold
+ * — still triggers a notification.
+ */
+export function shouldNotifyEmail(
+  data: EventData,
+  resolved?: { effects: ResolvedEffect[]; native?: ResolvedNative },
+): boolean {
+  const effects = resolved?.effects ?? [];
+  const native = resolved?.native;
+
+  // Full leg set, mirroring buildNotificationEmail.
+  const legs: ResolvedEffect[] = [...effects];
+  if (native) {
+    legs.push({
+      kind: "native",
+      direction: nativeDirection(data),
+      symbol: native.symbol,
+      humanAmount: native.humanAmount,
+      usdValue: native.usdValue,
+    } as ResolvedEffect);
+  }
+
+  if (legs.length === 0) {
+    // Couldn't resolve any legs; still notify when the tx moved raw native value.
+    const rawValue = data.transaction?.value;
+    return !!rawValue && rawValue !== "0";
+  }
+
+  // A leg is "meaningful" (triggers the email) unless it's a received ERC-20
+  // worth at most the threshold.
+  const meaningful = legs.some(
+    (l) =>
+      !(l.direction === "incoming" && l.kind === "erc20") ||
+      (l.usdValue ?? 0) > MIN_RECEIVED_VALUE_USD,
+  );
+  return meaningful;
+}
+
 /** Build the "X activity" notification email for a single event. */
 export function buildNotificationEmail(params: {
   email: string;
