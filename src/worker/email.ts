@@ -24,6 +24,42 @@ export function chainName(chainId: number): string {
   return CHAINS[chainId]?.name ?? `Chain ${chainId}`;
 }
 
+/** Public block-explorer base URL per chain (falls back to a null explorer). */
+export const CHAIN_EXPLORER: Record<number, string> = {
+  1: "https://etherscan.io",
+  42161: "https://arbiscan.io",
+  10: "https://optimistic.etherscan.io",
+  8453: "https://basescan.org",
+  137: "https://polygonscan.com",
+  100: "https://gnosisscan.io",
+  43114: "https://snowtrace.io",
+  56: "https://bscscan.com",
+  250: "https://ftmscan.com",
+};
+
+/** Link to a transaction on that chain's public explorer, or null. */
+export function explorerTxUrl(chainId: number, hash?: string): string | null {
+  const base = CHAIN_EXPLORER[chainId];
+  if (!base || !hash) return null;
+  return `${base}/tx/${hash}`;
+}
+
+/** One effect as delivered by wallet-webhooks. `kind` + `direction` are the
+ * canonical fields from the scanner; the old `type`/`asset` names are kept for
+ * messages that still serialise them. */
+export interface EventEffect {
+  kind?: "native" | "erc20" | "erc721" | string;
+  type?: string;
+  direction?: "incoming" | "outgoing" | "self" | string;
+  asset?: string;
+  assetAddress?: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  tokenId?: string;
+  [k: string]: unknown;
+}
+
 export interface EventData {
   chainId: number;
   trackedAddress: string;
@@ -36,32 +72,19 @@ export interface EventData {
     status: string;
     value: string;
   };
-  effects: Array<{
-    interface?: string;
-    type?: string;
-    asset?: string;
-    from?: string;
-    to?: string;
-    amount?: string;
-    tokenId?: string;
-    [k: string]: unknown;
-  }>;
+  effects?: EventEffect[];
 }
 
-/** A webhook effect enriched with resolved token metadata/price. */
-export interface ResolvedEffect {
-  type?: string;
-  asset?: string;
-  from?: string;
-  to?: string;
-  amount?: string;
-  tokenId?: string;
-  symbol?: string; // resolved token symbol (erc20)
+/** An effect enriched with resolved token/native metadata and a USD value. */
+export interface ResolvedEffect extends EventEffect {
+  kind: "native" | "erc20" | "erc721";
+  direction: "incoming" | "outgoing" | "self";
+  symbol?: string; // resolved token symbol
   humanAmount?: string; // resolved token amount, e.g. "5.00"
   usdValue?: number; // resolved USD value, when price known
 }
 
-/** A resolved native (mainnet coin) leg of a transaction. */
+/** A resolved native (mainnet coin) leg derived from tx.value. */
 export type ResolvedNative = {
   symbol: string;
   humanAmount: string;
@@ -88,22 +111,61 @@ function subjectDollar(value: number): string {
   return usd(value, value >= 1 ? 0 : 2);
 }
 
-/** Overall event direction (initiated-by semantics). */
-function transferDirection(data: EventData): "received" | "sent" {
+/** Overall event tense (initiated-by semantics). */
+function eventVerb(data: EventData): "received" | "sent" {
   return data.initiatedByTrackedAddress ? "sent" : "received";
 }
 
-/** Direction of a single transfer effect relative to the tracked wallet. */
-function directionFor(e: ResolvedEffect, trackedAddress: string): "received" | "sent" {
-  const tracked = trackedAddress.toLowerCase();
-  if (e.to?.toLowerCase() === tracked) return "received";
-  if (e.from?.toLowerCase() === tracked) return "sent";
-  return "received";
+/** Native leg direction (initiated-by semantics). */
+function nativeDirection(data: EventData): "incoming" | "outgoing" {
+  return data.initiatedByTrackedAddress ? "outgoing" : "incoming";
+}
+
+/** Direction of a single leg relative to the tracked wallet. */
+function legVerb(e: ResolvedEffect): "received" | "sent" {
+  if (e.direction === "outgoing") return "sent";
+  if (e.direction === "incoming") return "received";
+  const tracked = e.to?.toLowerCase();
+  return tracked ? "received" : "sent";
+}
+
+/** Sanitise the raw effect into the canonical (kind, direction, asset) shape. */
+function normalize(e: EventEffect): ResolvedEffect {
+  const kindRaw = (e.kind ?? e.type ?? "").toLowerCase();
+  const directionRaw = (e.direction ?? "").toLowerCase();
+  return {
+    ...e,
+    kind: (kindRaw === "native"
+      ? "native"
+      : kindRaw === "erc721"
+        ? "erc721"
+        : kindRaw === "erc20"
+          ? "erc20"
+          : kindRaw) as ResolvedEffect["kind"],
+    direction: (directionRaw === "incoming"
+      ? "incoming"
+      : directionRaw === "outgoing"
+        ? "outgoing"
+        : "self") as ResolvedEffect["direction"],
+    asset: (e.assetAddress ?? e.asset) as string | undefined,
+    assetAddress: (e.assetAddress ?? e.asset) as string | undefined,
+  };
+}
+
+/** Format a leg's amount+symbol for a line, with USD when known. */
+function amountText(e: ResolvedEffect): string {
+  if (e.usdValue !== undefined) {
+    const qty = `${e.humanAmount ?? e.amount ?? "0"} ${e.symbol ?? (e.kind === "native" ? "ETH" : "token")}`;
+    return `${qty} (${usd(e.usdValue)})`;
+  }
+  if (e.kind === "erc721") return `${e.symbol ?? "NFT"} #${e.tokenId ?? "?"}`;
+  const sym = e.symbol ?? (e.kind === "native" ? "ETH" : displayAddress(e.asset));
+  return `${e.humanAmount ?? e.amount ?? "0"} ${sym}`;
 }
 
 /**
  * Fetch token metadata/prices (via DeFiLlama, cached in D1) and compute the
- * display strings for the event's token transfers and native value.
+ * display strings for the event's token/native legs.
  */
 export async function enrichEvent(
   env: Env,
@@ -113,34 +175,36 @@ export async function enrichEvent(
 
   const effects: ResolvedEffect[] = [];
   for (const e of data.effects ?? []) {
-    const base: ResolvedEffect = { ...e };
-    if (e.type === "erc20") {
-      const tok = await getToken(env, chainId, e.asset ?? null);
+    const resolved = normalize(e);
+    if (resolved.kind === "erc20") {
+      const tok = await getToken(env, chainId, resolved.assetAddress ?? null);
       if (tok) {
-        const human = Number(formatUnits(BigInt(e.amount ?? "0"), tok.decimals));
-        base.symbol = tok.symbol;
-        base.humanAmount = human.toLocaleString("en-US", {
-          maximumFractionDigits: 6,
-        });
-        base.usdValue = human * tok.priceUsd;
+        const human = Number(formatUnits(BigInt(resolved.amount ?? "0"), tok.decimals));
+        resolved.symbol = tok.symbol;
+        resolved.humanAmount = human.toLocaleString("en-US", { maximumFractionDigits: 6 });
+        resolved.usdValue = human * tok.priceUsd;
       }
+    } else if (resolved.kind === "native") {
+      const nat = await getToken(env, chainId, null, true);
+      const human = Number(formatEther(BigInt(resolved.amount ?? "0")));
+      resolved.symbol = nat?.symbol ?? "ETH";
+      resolved.humanAmount = human.toLocaleString("en-US", { maximumFractionDigits: 6 });
+      resolved.usdValue = nat ? human * nat.priceUsd : undefined;
     }
-    effects.push(base);
+    effects.push(resolved);
   }
 
-  // Native value: the wallet moved the chain's main coin (tx.value). Only used
-  // when there are no priced token effects so we don't double count.
+  // tx.value native (EOA-authored sends) — only when the scanner didn't already
+  // deliver a native leg, so we never double count.
   let native: ResolvedNative | undefined;
   const rawValue = data.transaction?.value;
-  const hasPricedToken = effects.some((e) => e.usdValue !== undefined);
-  if (!hasPricedToken && rawValue && rawValue !== "0") {
+  const hasNativeLeg = effects.some((e) => e.kind === "native");
+  if (!hasNativeLeg && rawValue && rawValue !== "0") {
     const nat = await getToken(env, chainId, null, true);
     const human = Number(formatEther(BigInt(rawValue)));
     native = {
       symbol: nat?.symbol ?? "ETH",
-      humanAmount: human.toLocaleString("en-US", {
-        maximumFractionDigits: 6,
-      }),
+      humanAmount: human.toLocaleString("en-US", { maximumFractionDigits: 6 }),
       usdValue: nat ? human * nat.priceUsd : undefined,
     };
   }
@@ -154,47 +218,77 @@ export function buildNotificationEmail(params: {
   walletLabel: string | null;
   data: EventData;
   resolved?: { effects: ResolvedEffect[]; native?: ResolvedNative };
+  appUrl?: string;
 }) {
-  const { walletLabel, data, resolved } = params;
+  const { walletLabel, data, resolved, appUrl } = params;
   const chain = chainName(data.chainId);
   const tx = data.transaction;
   const effects = resolved?.effects ?? [];
   const native = resolved?.native;
 
   const who = `${walletLabel?.trim() || displayAddress(data.trackedAddress)} (${displayAddress(data.trackedAddress)})`;
+  // Subject identifies the wallet by its label (or short address).
+  const subjWho = walletLabel?.trim() || displayAddress(data.trackedAddress);
 
-  // One line per leg: "<label> (<addr>) received/sent $X of <token>".
-  const transferLines: string[] = [];
-  for (const e of effects) {
-    if (e.type === "erc20") {
-      const direction = directionFor(e, data.trackedAddress);
-      const amount = e.usdValue
-        ? `${usd(e.usdValue)} of ${e.symbol ?? "token"}`
-        : `${e.humanAmount ?? e.amount ?? "0"} ${e.symbol ?? displayAddress(e.asset)}`;
-      transferLines.push(`${who} ${direction} ${amount}`);
-    } else if (e.type === "erc721") {
-      const direction = directionFor(e, data.trackedAddress);
-      transferLines.push(`${who} ${direction} ${e.symbol ?? "NFT"} #${e.tokenId ?? "?"}`);
-    }
-  }
+  // Assemble the full leg set: enriched effects + any tx.value native.
+  const legs: ResolvedEffect[] = [...effects];
   if (native) {
-    const amount = native.usdValue
-      ? `${usd(native.usdValue)} of ${native.symbol}`
-      : `${native.humanAmount} ${native.symbol}`;
-    transferLines.push(`${who} ${transferDirection(data)} ${amount}`);
+    legs.push({
+      kind: "native",
+      direction: nativeDirection(data),
+      symbol: native.symbol,
+      humanAmount: native.humanAmount,
+      usdValue: native.usdValue,
+    } as ResolvedEffect);
   }
 
-  // Subject, Aave style: "You received $5" / "You sent $2.50".
+  const incoming = legs.filter((l) => l.direction === "incoming");
+  const outgoing = legs.filter((l) => l.direction === "outgoing");
+  const priceIn = incoming.filter((l) => l.usdValue !== undefined);
+  const priceOut = outgoing.filter((l) => l.usdValue !== undefined);
+
+  const transferLines: string[] = [];
   let subject: string;
-  const priced = effects.find((e) => e.usdValue !== undefined);
-  if (priced && priced.usdValue !== undefined) {
-    subject = `You ${directionFor(priced, data.trackedAddress)} ${subjectDollar(priced.usdValue)}`;
-  } else if (native?.usdValue !== undefined) {
-    subject = `You ${transferDirection(data)} ${subjectDollar(native.usdValue)} of ${native.symbol}`;
+
+  if (priceIn.length > 0 && priceOut.length > 0) {
+    // It's an exchange: pair them into a single "swapped" summary.
+    const summary = (legs_: ResolvedEffect[]) => {
+      const sorted = [...legs_].sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+      const primary = sorted[0];
+      let text = `${primary.humanAmount} ${primary.symbol ?? "token"}`;
+      if (sorted.length > 1) text += ` (+${sorted.length - 1} more)`;
+      return { text, primary };
+    };
+    const out = summary(priceOut);
+    const inn = summary(priceIn);
+    transferLines.push(`${who} swapped ${out.text} for ${inn.text}`);
+
+    const pO = out.primary;
+    const pI = inn.primary;
+    subject = `${subjWho} swapped ${pO.humanAmount} ${pO.symbol ?? "token"} for ${pI.humanAmount} ${pI.symbol ?? "token"}`;
+
+    // Any non-priced legs (e.g. an NFT also moved) still get their own line.
+    const leftover = legs.filter((l) => l.direction !== undefined && l.usdValue === undefined);
+    for (const l of leftover) {
+      if (l.kind === "native" || l.usdValue !== undefined) continue;
+      transferLines.push(`${who} ${legVerb(l)} ${amountText(l)}`);
+    }
   } else {
-    subject = `Activity ${
-      transferDirection(data) === "received" ? "received" : "sent"
-    } on ${chain} · ${walletLabel?.trim() ?? displayAddress(data.trackedAddress)}`;
+    // Individual legs.
+    for (const l of legs) {
+      if (l.direction === "self") continue;
+      transferLines.push(`${who} ${legVerb(l)} ${amountText(l)}`);
+    }
+
+    const priced = legs.find((l) => l.usdValue !== undefined);
+    if (priced && priced.usdValue !== undefined) {
+      const sym = priced.symbol ?? (priced.kind === "native" ? "ETH" : "token");
+      subject = `${subjWho} ${legVerb(priced)} ${subjectDollar(priced.usdValue)} of ${sym}`;
+    } else {
+      subject = `Activity ${
+        eventVerb(data) === "received" ? "received" : "sent"
+      } on ${chain} · ${walletLabel?.trim() ?? displayAddress(data.trackedAddress)}`;
+    }
   }
 
   const description =
@@ -220,12 +314,18 @@ export function buildNotificationEmail(params: {
   const htmlLines = transferLines.map(
     (l) => `<li style="font-size:15px;line-height:1.6;margin:2px 0;">${escapeHtml(l)}</li>`,
   );
+  const manageUrl = appUrl?.trim() || "https://wallet-alerts.stupidtech.net";
+  const txUrl = explorerTxUrl(data.chainId, tx.hash);
+  const hashView = txUrl
+    ? `<a href="${escapeHtml(txUrl)}" style="color:#1a0dab;text-decoration:none;">View transaction on the explorer</a>`
+    : escapeHtml(tx.hash);
   const html = render(notificationTemplate, {
     subject: escapeHtml(subject),
     subtitle: `${chain} · ${statusLabel(tx.status)}`,
     lines: htmlLines.join(""),
-    hash: escapeHtml(tx.hash),
+    hash: hashView,
     tracked: displayAddress(data.trackedAddress),
+    manageUrl: escapeHtml(manageUrl),
   });
 
   return { subject, text, html, description };

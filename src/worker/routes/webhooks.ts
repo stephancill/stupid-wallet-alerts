@@ -47,6 +47,7 @@ webhookRoute.post("/", async (c) => {
           walletLabel: owner.label,
           data,
           resolved,
+          appUrl: c.env.APP_BASE_URL,
         }),
       ).catch(() => {
         // one bad recipient must not block the rest; the ledger offers retries

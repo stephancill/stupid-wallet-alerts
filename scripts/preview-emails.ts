@@ -52,6 +52,7 @@ const outgoing = buildNotificationEmail({
       usdValue: 627.6,
     },
   },
+  appUrl: "https://wallet-alerts.stupidtech.net",
 });
 previews.push({
   name: "Outgoing native ETH (Ethereum)",
@@ -78,8 +79,9 @@ const erc20 = buildNotificationEmail({
     },
     effects: [
       {
-        type: "erc20",
-        asset: "USDC",
+        kind: "erc20",
+        direction: "incoming",
+        assetAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
         from: "0x7a5ed39eb67a6edadaf2a8619c66e9bd1be2d13f",
         to: address,
         amount: "5000000",
@@ -89,8 +91,9 @@ const erc20 = buildNotificationEmail({
   resolved: {
     effects: [
       {
-        type: "erc20",
-        asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        kind: "erc20",
+        direction: "incoming",
+        assetAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
         from: "0x7a5ed39eb67a6edadaf2a8619c66e9bd1be2d13f",
         to: address,
         amount: "5000000",
@@ -120,13 +123,23 @@ const erc721 = buildNotificationEmail({
       status: "success",
       value: "0",
     },
-    effects: [{ type: "erc721", asset: "Lil Nouns", from: "0xE3c3…", to: address, tokenId: "832" }],
+    effects: [
+      {
+        kind: "erc721",
+        direction: "incoming",
+        assetAddress: "0x4b10701b7af9f27b0e7c4f5e3a3e6f6e3f3f3f3",
+        from: "0xe7c3…",
+        to: address,
+        tokenId: "832",
+      },
+    ],
   },
   resolved: {
     effects: [
       {
-        type: "erc721",
-        asset: "0x4b10701b7af9f27b0e7c4f5e3a3e6f6e3f3f3f3",
+        kind: "erc721",
+        direction: "incoming",
+        assetAddress: "0x4b10701b7af9f27b0e7c4f5e3a3e6f6e3f3f3f3",
         from: "0xe7c3…",
         to: address,
         tokenId: "832",
@@ -136,6 +149,105 @@ const erc721 = buildNotificationEmail({
   },
 });
 previews.push({ name: "Incoming ERC-721 (Optimism)", subject: erc721.subject, html: erc721.html });
+
+// 5. Swap: the ladder case — outbound USDC + native ETH inbound pair.
+const swap = buildNotificationEmail({
+  email: "you@example.com",
+  walletLabel: "stephan.base.eth",
+  data: {
+    chainId: 8453,
+    trackedAddress: address,
+    initiatedByTrackedAddress: false,
+    blockNumber: "51000000",
+    transaction: {
+      hash: "0xb0d23f38387582e6d7bc1094006c5b8c309306f3ee5840dbb07c337804155dea",
+      index: 12,
+      from: "0x4b5c33c3c7a31a109f5a9b64683b0056a62226",
+      to: "0x5ff137d4b0fd4cd49dca30c7cf57e578a026d2789",
+      status: "success",
+      value: "0",
+    },
+    effects: [
+      {
+        kind: "erc20",
+        direction: "outgoing",
+        assetAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        from: address,
+        to: "0x123100000000000000000000000000000000000032",
+        amount: "50000000",
+      },
+    ],
+  },
+  resolved: {
+    effects: [
+      {
+        kind: "erc20",
+        direction: "outgoing",
+        assetAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        from: address,
+        to: "0x123100000000000000000000000000000000000032",
+        amount: "50000000",
+        symbol: "USDC",
+        humanAmount: "50",
+        usdValue: 50,
+      },
+      {
+        kind: "native",
+        direction: "incoming",
+        from: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        to: address,
+        amount: "20194000902470080",
+        symbol: "ETH",
+        humanAmount: "0.020194",
+        usdValue: 50.6,
+      },
+    ],
+  },
+  appUrl: "https://wallet-alerts.stupidtech.net",
+});
+previews.push({ name: "Swap — 50 USDC → ETH", subject: swap.subject, html: swap.html });
+
+// 6. The actual Base swap dot — webhook only delivers the one outgoing leg
+//    (smart-wallet inbound native isn't surfaced), so it renders one-sided.
+const realTx = buildNotificationEmail({
+  email: "you@example.com",
+  walletLabel: "stephan.base.eth",
+  data: {
+    chainId: 8453,
+    trackedAddress: "0x2a6c7bb649234ee2656556a1c8aaaed7318dcb",
+    initiatedByTrackedAddress: false,
+    blockNumber: "508452",
+    transaction: {
+      hash: "0xb0d23f38387582e6d7bc1094006c5b8c3906f3ee5840dbb07c337804155dea",
+      index: 114,
+      from: "0x4b5c33c3c7a31a100f5a9b64683b0056a62226",
+      to: "0x5ff137d4b0fd4c49dca30c7cf57e578a026d2789",
+      status: "success",
+      value: "0",
+    },
+    effects: [],
+  },
+  resolved: {
+    effects: [
+      {
+        kind: "erc20",
+        direction: "outgoing",
+        assetAddress: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        from: "0x2a6c7bb649234ee2656555a1e7aaaed7318dcb",
+        to: "0x123100000000000000000000000000000000000032",
+        amount: "50000000",
+        symbol: "USDC",
+        humanAmount: "50",
+        usdValue: 50,
+      },
+    ],
+  },
+});
+previews.push({
+  name: "Real tx (one-sided, webhook caps)",
+  subject: realTx.subject,
+  html: realTx.html,
+});
 
 function escapeHtml(s: string): string {
   return s.replace(

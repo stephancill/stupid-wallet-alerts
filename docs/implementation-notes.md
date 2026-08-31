@@ -2,6 +2,30 @@
 
 > Vetted as public documentation — do not include personal info.
 
+## 2026-08-30 — message improvement round
+
+- **Schema alignment**: `email.ts` now parses the real wallet-webhooks effect
+  shape (`kind` = native|erc20|erc721, `direction` = incoming|outgoing|self,
+  `assetAddress`) while accepting the legacy `type`/`asset` names, and trusts the
+  webhook's `direction` instead of re-deriving it. Real deliveries now render
+  (previously most token/native legs fell through to a generic message).
+- **Swap pairing**: when an event carries both priced incoming and priced
+  outgoing fungible legs, render a single exchange line
+  (`<wallet> swapped <out> for <in>`) instead of separate legs, and a matching
+  subject. Inbound leg is only used when actually delivered (smart-wallet 4337
+  inbound native is not surfaced by the webhook, so those stay one-sided).
+- **Subjects identify the wallet**: subjects now start with the wallet label
+  (or short address) and include the token symbol,
+  e.g. `Treasury received $5 of USDC`, `Main wallet sent $628 of ETH` — not
+  "You".
+- **Email links**: the notification email now links to the transaction on its
+  chain's block explorer (`CHAIN_EXPLORER` + `explorerTxUrl`) and includes a
+  "Manage your accounts" footer link to `APP_BASE_URL` (passed from the webhook
+  route).
+- **Templates**: `notification.html` gained `{{manageUrl}}` footer; both template
+  files formatted consistently. Native `kind` effects (delivered as
+  `amount` wei) are priced like ERC-20s.
+
 ## 2026-08-30 — email templates as versioned files
 
 Moved both email templates out of template literals into real, versionable files
