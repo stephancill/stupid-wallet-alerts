@@ -1,5 +1,8 @@
-import { formatEther } from "viem";
+import { formatEther, formatUnits } from "viem";
 import type { Env } from "./lib/env";
+import { getToken } from "./lib/token-info";
+import notificationTemplate from "./templates/notification.html?raw";
+import signInTemplate from "./templates/sign-in.html?raw";
 
 /** Chain metadata used in emails. */
 export const CHAINS: Record<number, { name: string; short: string }> = {
@@ -45,17 +48,104 @@ export interface EventData {
   }>;
 }
 
-function shortAddr(address: string | null | undefined, len = 6): string {
-  if (!address) return "—";
-  try {
-    return `${address.slice(0, 2 + len)}…${address.slice(-len)}`;
-  } catch {
-    return address;
-  }
+/** A webhook effect enriched with resolved token metadata/price. */
+export interface ResolvedEffect {
+  type?: string;
+  asset?: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  tokenId?: string;
+  symbol?: string; // resolved token symbol (erc20)
+  humanAmount?: string; // resolved token amount, e.g. "5.00"
+  usdValue?: number; // resolved USD value, when price known
 }
 
-function statusLabel(status: string): string {
-  return status === "success" ? "success" : "reverted";
+/** A resolved native (mainnet coin) leg of a transaction. */
+export type ResolvedNative = {
+  symbol: string;
+  humanAmount: string;
+  usdValue?: number;
+};
+
+function displayAddress(address: string | null | undefined, len = 4): string {
+  if (!address) return "—";
+  const a = address.toLowerCase();
+  return `${a.slice(0, 2 + len)}…${a.slice(-len)}`;
+}
+
+function usd(value: number, digits: 0 | 2 = 2): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+/** Aave-style subject value: "$5" whole dollars, "$0.42" sub-dollar. */
+function subjectDollar(value: number): string {
+  return usd(value, value >= 1 ? 0 : 2);
+}
+
+/** Overall event direction (initiated-by semantics). */
+function transferDirection(data: EventData): "received" | "sent" {
+  return data.initiatedByTrackedAddress ? "sent" : "received";
+}
+
+/** Direction of a single transfer effect relative to the tracked wallet. */
+function directionFor(e: ResolvedEffect, trackedAddress: string): "received" | "sent" {
+  const tracked = trackedAddress.toLowerCase();
+  if (e.to?.toLowerCase() === tracked) return "received";
+  if (e.from?.toLowerCase() === tracked) return "sent";
+  return "received";
+}
+
+/**
+ * Fetch token metadata/prices (via DeFiLlama, cached in D1) and compute the
+ * display strings for the event's token transfers and native value.
+ */
+export async function enrichEvent(
+  env: Env,
+  data: EventData,
+): Promise<{ effects: ResolvedEffect[]; native?: ResolvedNative }> {
+  const chainId = data.chainId;
+
+  const effects: ResolvedEffect[] = [];
+  for (const e of data.effects ?? []) {
+    const base: ResolvedEffect = { ...e };
+    if (e.type === "erc20") {
+      const tok = await getToken(env, chainId, e.asset ?? null);
+      if (tok) {
+        const human = Number(formatUnits(BigInt(e.amount ?? "0"), tok.decimals));
+        base.symbol = tok.symbol;
+        base.humanAmount = human.toLocaleString("en-US", {
+          maximumFractionDigits: 6,
+        });
+        base.usdValue = human * tok.priceUsd;
+      }
+    }
+    effects.push(base);
+  }
+
+  // Native value: the wallet moved the chain's main coin (tx.value). Only used
+  // when there are no priced token effects so we don't double count.
+  let native: ResolvedNative | undefined;
+  const rawValue = data.transaction?.value;
+  const hasPricedToken = effects.some((e) => e.usdValue !== undefined);
+  if (!hasPricedToken && rawValue && rawValue !== "0") {
+    const nat = await getToken(env, chainId, null, true);
+    const human = Number(formatEther(BigInt(rawValue)));
+    native = {
+      symbol: nat?.symbol ?? "ETH",
+      humanAmount: human.toLocaleString("en-US", {
+        maximumFractionDigits: 6,
+      }),
+      usdValue: nat ? human * nat.priceUsd : undefined,
+    };
+  }
+
+  return { effects, native };
 }
 
 /** Build the "X activity" notification email for a single event. */
@@ -63,59 +153,108 @@ export function buildNotificationEmail(params: {
   email: string;
   walletLabel: string | null;
   data: EventData;
+  resolved?: { effects: ResolvedEffect[]; native?: ResolvedNative };
 }) {
-  const { walletLabel, data } = params;
+  const { walletLabel, data, resolved } = params;
   const chain = chainName(data.chainId);
-  const dir = data.initiatedByTrackedAddress ? "sent from" : "on";
   const tx = data.transaction;
+  const effects = resolved?.effects ?? [];
+  const native = resolved?.native;
 
-  const effectLines = (data.effects ?? []).map((e) => {
-    if (e.type === "erc721") {
-      return `${e.asset ?? "NFT"} #${e.tokenId ?? "?"} transferred (721)`;
-    }
+  const who = `${walletLabel?.trim() || displayAddress(data.trackedAddress)} (${displayAddress(data.trackedAddress)})`;
+
+  // One line per leg: "<label> (<addr>) received/sent $X of <token>".
+  const transferLines: string[] = [];
+  for (const e of effects) {
     if (e.type === "erc20") {
-      return `${e.amount ?? "0"} ${e.asset ?? "token"} (ERC-20)`;
+      const direction = directionFor(e, data.trackedAddress);
+      const amount = e.usdValue
+        ? `${usd(e.usdValue)} of ${e.symbol ?? "token"}`
+        : `${e.humanAmount ?? e.amount ?? "0"} ${e.symbol ?? displayAddress(e.asset)}`;
+      transferLines.push(`${who} ${direction} ${amount}`);
+    } else if (e.type === "erc721") {
+      const direction = directionFor(e, data.trackedAddress);
+      transferLines.push(`${who} ${direction} ${e.symbol ?? "NFT"} #${e.tokenId ?? "?"}`);
     }
-    return "token transfer";
-  });
+  }
+  if (native) {
+    const amount = native.usdValue
+      ? `${usd(native.usdValue)} of ${native.symbol}`
+      : `${native.humanAmount} ${native.symbol}`;
+    transferLines.push(`${who} ${transferDirection(data)} ${amount}`);
+  }
+
+  // Subject, Aave style: "You received $5" / "You sent $2.50".
+  let subject: string;
+  const priced = effects.find((e) => e.usdValue !== undefined);
+  if (priced && priced.usdValue !== undefined) {
+    subject = `You ${directionFor(priced, data.trackedAddress)} ${subjectDollar(priced.usdValue)}`;
+  } else if (native?.usdValue !== undefined) {
+    subject = `You ${transferDirection(data)} ${subjectDollar(native.usdValue)} of ${native.symbol}`;
+  } else {
+    subject = `Activity ${
+      transferDirection(data) === "received" ? "received" : "sent"
+    } on ${chain} · ${walletLabel?.trim() ?? displayAddress(data.trackedAddress)}`;
+  }
 
   const description =
-    effectLines.length > 0
-      ? effectLines.join(" · ")
+    transferLines.length > 0
+      ? transferLines.join("\n")
       : `Native value${ethAmountNote(tx.value)} on ${chain}`;
 
-  const subject = `Activity ${dir} ${chain} · ${walletLabel?.trim() ?? shortAddr(data.trackedAddress)}`;
-
   const text = [
-    `Activity detected on ${chain}.`,
+    subject,
     ``,
-    `Tracking: ${data.trackedAddress}`,
-    `Label: ${walletLabel ?? "—"}`,
+    description,
     ``,
-    `Description: ${description}`,
-    `Direction: ${dir === "on" ? "incoming" : "outgoing"}`,
+    `Chain: ${chain}`,
+    `From: ${tx.from}`,
+    `To: ${tx.to ?? "—"}`,
     `Status: ${statusLabel(tx.status)}`,
     ``,
-    `TX: ${data.blockNumber} via ${data.transaction.hash}`,
+    `TX: ${tx.hash}`,
     ``,
     `— stupid wallet alerts`,
   ].join("\n");
 
-  const html = `
-    <div style="font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;">
-      <h2 style="font-size:18px;margin:0 0 12px;">${data.initiatedByTrackedAddress ? "Outgoing" : "Incoming"} · ${chain}</h2>
-      <p style="margin:0 0 16px;font-size:15px;">${description}</p>
-      <ul style="margin:0 0 16px;padding:0;list-style:none;font-size:13px;line-height:1.6;">
-        <li>Label: ${walletLabel ?? "—"}</li>
-        <li>Status: ${statusLabel(tx.status)}</li>
-        <li>From: ${tx.from}</li>
-        <li>To: ${tx.to ?? "—"}</li>
-        <li>Hash: ${tx.hash}</li>
-      </ul>
-      <p style="font-size:12px;color:#666;margin:0;">You're getting this because ${data.trackedAddress} is on your watch list.</p>
-    </div>`;
+  const htmlLines = transferLines.map(
+    (l) => `<li style="font-size:15px;line-height:1.6;margin:2px 0;">${escapeHtml(l)}</li>`,
+  );
+  const html = render(notificationTemplate, {
+    subject: escapeHtml(subject),
+    subtitle: `${chain} · ${statusLabel(tx.status)}`,
+    lines: htmlLines.join(""),
+    hash: escapeHtml(tx.hash),
+    tracked: displayAddress(data.trackedAddress),
+  });
 
-  return { subject: subject.replace(/[^\x20-\x7E]/g, ""), text, html: html.trim(), description };
+  return { subject, text, html, description };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => {
+    switch (c) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return c;
+    }
+  });
+}
+
+/** Substitute {{key}} placeholders in an HTML template from a variables map. */
+function render(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([\w]+)\s*\}\}/g, (_m, key: string) => vars[key] ?? "");
+}
+
+function statusLabel(status: string): string {
+  return status === "success" ? "success" : "reverted";
 }
 
 function ethAmountNote(value: string): string {
@@ -134,17 +273,12 @@ export function buildSignInEmail(params: { magicLink: string }): {
   const text = [
     "Sign in to stupid wallet alerts",
     "",
-    `Use this link to sign in (expires in 30 minutes):`,
+    "Use this link to sign in (expires in 30 minutes):",
     magicLink,
     "",
     "If you didn't request this, you can ignore this email.",
   ].join("\n");
-  const html = `
-    <div style="font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;">
-      <h2 style="font-size:18px;margin:0 0 12px;">Sign in to stupid wallet alerts</h2>
-      <p style="margin:0 0 12px;"><a href="${magicLink}">Sign in to stupid wallet alerts</a></p>
-      <p style="font-size:13px;color:#666;margin:0;">This link expires in 30 minutes. If you didn't request this, ignore this email.</p>
-    </div>`;
+  const html = render(signInTemplate, { link: escapeHtml(magicLink) });
   return { subject, text, html };
 }
 

@@ -2,6 +2,72 @@
 
 > Vetted as public documentation — do not include personal info.
 
+## 2026-08-30 — email templates as versioned files
+
+Moved both email templates out of template literals into real, versionable files
+so the HTML can be reviewed/diff'd and edited directly:
+
+- `src/worker/templates/notification.html` and `src/worker/templates/sign-in.html`
+- Loaded into the Worker bundle via Vite `?raw` imports; rendered with a tiny
+  `{{key}}` placeholder substitution (`render()` in `email.ts`). No runtime
+  templating dependency.
+- Plain-text fallbacks and subject lines stay in code (`email.ts`); preview via
+  `bun scripts/preview-emails.ts → /tmp/wallet-alerts-emails.html`.
+
+## 2026-08-30 — token details & USD pricing for transfer emails
+
+Emails now resolve token metadata (symbol/decimals) and USD prices so transfer
+lines read like an app notification (e.g. Aave's "You received $5").
+
+- **Source:** DeFiLlama `coins.llama.fi/prices/current/{chain}:{address}`, called
+  from the Worker. Chain id → DeFiLlama slug map in `src/worker/lib/token-info.ts`
+  (ethereum, arbitrum, base, optimism, polygon, gnosis, avalanche, bsc).
+- **Caching**: new `0001_token_cache` D1 table keyed by `(chain_id, address)`;
+  `getToken()` serves fresh rows for 10 min and refreshes prices in place.
+  Native coins keyed by sentinel `$NATIVE:<chainId>` (no clash with contracts).
+- **Enrichment** (`src/worker/email.ts` `enrichEvent`): resolves each ERC-20
+  effect's token and computes `humanAmount` + `usdValue`; if a tx moves native
+  value with no priced token effects, prices the chain's native coin too.
+- **Formatting**: subject is Aave-style `You received $5` / `You sent $2.50`;
+  body line is `<label> (<shortAddr>) received/sent $X of <symbol>`, falling
+  back to raw amount+symbol when a price isn't available.
+- **Webhook route** (`routes/webhooks.ts`) now calls `enrichEvent` once per event
+  (resolved once, then emailed to every owner), keeping the webhook receiver the
+  single place that maps events → owners → emails.
+
+Deploy notes: a new column doesn't exist so the new table requires applying
+`0001_token_cache` to the remote D1 (`bun run db:migrate`) when deploying.
+
+## 2026-08-30 — migrate UI to shadcn/ui
+
+Rebuilt the client on **shadcn/ui** (new-york style, neutral palette, Tailwind
+v4) and bootstrapped its foundation.
+
+- Added the shadcn stack: `components.json`, path alias `@/* -> src/*`
+  (tsconfig + vite), `src/lib/utils.ts` (`cn` via clsx + tailwind-merge), the
+  Tailwind v4 theme+preflight in `src/styles.css` (added `tw-animate-css`), and
+  `next-themes` (light-only) so the `sonner` toaster can resolve a theme.
+- Added shadcn primitives under `src/components/ui/`: `button`, `card`, `input`,
+  `label`, `checkbox`, `select`, `badge`, `alert`, `sonner`. Components are
+  generated from the unified `radix-ui` package.
+- Rewrote the views to use them: `App` (invalid-link `Alert`), `SignIn` (`Card`
+  + `Input` + `Button`), `Dashboard` (`Button` sign-out), `AddWalletForm`
+  (`Card` + chain `Checkbox` grid), `WalletList` (per-wallet `Card`, per-chain
+  `Badge` mapped from status, `Select`-based chain picker in the edit form,
+  `Input` label editor).
+- Switched inline error/success text to `sonner` toasts (`<Toaster richColors />`
+  mounted in `main.tsx`).
+- Dropped the "layout-only, no preflight" CSS so shadcn primitives (which rely on
+  Tailwind preflight + theme vars) render correctly; form controls no longer use
+  native browser styling.
+
+### Infrastructure (done)
+
+- Deps added: `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`,
+  `tw-animate-css`, `radix-ui`, `sonner`, `next-themes`. Removed the unused
+  `@radix-ui/react-slot`. Verified `bun run build` (client + Worker bundle) and
+  `bunx oxlint` pass.
+
 ## 2026-08-30 — initial build & deploy
 
 Scaffolded the "*stupid wallet alerts*" email service on top of

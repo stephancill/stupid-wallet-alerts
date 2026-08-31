@@ -45,8 +45,19 @@ const outgoing = buildNotificationEmail({
     },
     effects: [],
   },
+  resolved: {
+    native: {
+      symbol: "ETH",
+      humanAmount: "0.25",
+      usdValue: 627.6,
+    },
+  },
 });
-previews.push({ name: "Outgoing native ETH (Ethereum)", subject: outgoing.subject, html: outgoing.html });
+previews.push({
+  name: "Outgoing native ETH (Ethereum)",
+  subject: outgoing.subject,
+  html: outgoing.html,
+});
 
 // 3. Incoming ERC-20 (Base).
 const erc20 = buildNotificationEmail({
@@ -66,7 +77,27 @@ const erc20 = buildNotificationEmail({
       value: "0",
     },
     effects: [
-      { type: "erc20", asset: "USDC", from: "0x7a5ed39eb67a6edadaf2a8619c66e9bd1be2d13f", to: address, amount: "5000000" },
+      {
+        type: "erc20",
+        asset: "USDC",
+        from: "0x7a5ed39eb67a6edadaf2a8619c66e9bd1be2d13f",
+        to: address,
+        amount: "5000000",
+      },
+    ],
+  },
+  resolved: {
+    effects: [
+      {
+        type: "erc20",
+        asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        from: "0x7a5ed39eb67a6edadaf2a8619c66e9bd1be2d13f",
+        to: address,
+        amount: "5000000",
+        symbol: "USDC",
+        humanAmount: "5",
+        usdValue: 5,
+      },
     ],
   },
 });
@@ -91,11 +122,26 @@ const erc721 = buildNotificationEmail({
     },
     effects: [{ type: "erc721", asset: "Lil Nouns", from: "0xE3c3…", to: address, tokenId: "832" }],
   },
+  resolved: {
+    effects: [
+      {
+        type: "erc721",
+        asset: "0x4b10701b7af9f27b0e7c4f5e3a3e6f6e3f3f3f3",
+        from: "0xe7c3…",
+        to: address,
+        tokenId: "832",
+        symbol: "Lil Nouns",
+      },
+    ],
+  },
 });
 previews.push({ name: "Incoming ERC-721 (Optimism)", subject: erc721.subject, html: erc721.html });
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!,
+  );
 }
 
 function frame(name: string, subject: string, html: string): string {

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { verifyWebhookSignature as verifyHmac } from "../lib/crypto";
-import { buildNotificationEmail, sendEmail, type EventData } from "../email";
+import { buildNotificationEmail, enrichEvent, sendEmail, type EventData } from "../email";
 import type { Env } from "../lib/env";
 import { eventSeen, ownerOfWallet, recordEvent } from "../wallet-store";
 
@@ -33,6 +33,10 @@ webhookRoute.post("/", async (c) => {
 
   const data = payload.data;
   if (data?.trackedAddress) {
+    // Resolve token prices once (per event), then email every owner.
+    const resolved = await enrichEvent(c.env, data).catch(() => ({
+      effects: [],
+    }));
     const owners = await ownerOfWallet(c.env.WA_DB, data.trackedAddress.toLowerCase());
     for (const owner of owners) {
       await sendEmail(
@@ -42,6 +46,7 @@ webhookRoute.post("/", async (c) => {
           email: owner.email,
           walletLabel: owner.label,
           data,
+          resolved,
         }),
       ).catch(() => {
         // one bad recipient must not block the rest; the ledger offers retries
