@@ -226,8 +226,7 @@ export function buildNotificationEmail(params: {
   const effects = resolved?.effects ?? [];
   const native = resolved?.native;
 
-  const who = `${walletLabel?.trim() || displayAddress(data.trackedAddress)} (${displayAddress(data.trackedAddress)})`;
-  // Subject identifies the wallet by its label (or short address).
+  // Subject/heading identify the wallet by its label (or short address).
   const subjWho = walletLabel?.trim() || displayAddress(data.trackedAddress);
 
   // Assemble the full leg set: enriched effects + any tx.value native.
@@ -261,7 +260,7 @@ export function buildNotificationEmail(params: {
     };
     const out = summary(priceOut);
     const inn = summary(priceIn);
-    transferLines.push(`${who} swapped ${out.text} for ${inn.text}`);
+    transferLines.push(`Swapped ${out.text} for ${inn.text}`);
 
     const pO = out.primary;
     const pI = inn.primary;
@@ -271,13 +270,13 @@ export function buildNotificationEmail(params: {
     const leftover = legs.filter((l) => l.direction !== undefined && l.usdValue === undefined);
     for (const l of leftover) {
       if (l.kind === "native" || l.usdValue !== undefined) continue;
-      transferLines.push(`${who} ${legVerb(l)} ${amountText(l)}`);
+      transferLines.push(`${legVerb(l)} ${amountText(l)}`);
     }
   } else {
     // Individual legs.
     for (const l of legs) {
       if (l.direction === "self") continue;
-      transferLines.push(`${who} ${legVerb(l)} ${amountText(l)}`);
+      transferLines.push(`${legVerb(l)} ${amountText(l)}`);
     }
 
     const priced = legs.find((l) => l.usdValue !== undefined);
@@ -320,7 +319,7 @@ export function buildNotificationEmail(params: {
     ? `<a href="${escapeHtml(txUrl)}" style="color:#1a0dab;text-decoration:none;">View transaction on the explorer</a>`
     : escapeHtml(tx.hash);
   const html = render(notificationTemplate, {
-    subject: escapeHtml(subject),
+    account: escapeHtml(subjWho),
     subtitle: `${chain} · ${statusLabel(tx.status)}`,
     lines: htmlLines.join(""),
     hash: hashView,

@@ -38,3 +38,6 @@ ERC-20 / ERC-721 transfer.
    acting (see `wallet-store.eventSeen/recordEvent`).
 8. Keep the API under `/api` (mounted in `src/worker/index.ts`); non-`/api`
    requests are served as static assets / SPA fallback.
+9. **Automatic deployments:** pushing to `main` (GitHub) auto-deploys to
+   Cloudflare (Workers git integration). No manual `wrangler deploy` needed for
+   normal changes; verify what's live with `bunx wrangler deployments list`.

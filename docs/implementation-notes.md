@@ -26,6 +26,11 @@
   files formatted consistently. Native `kind` effects (delivered as
   `amount` wei) are priced like ERC-20s.
 
+- **Template roles — no repeating string**: the email subject carries the one-line
+  summary, the HTML `<h2>` heading shows only the account name (`{{account}}`),
+  and the body `<li>` lines show just the legs (direction + amount + symbol) —
+  removing the phrase that previously appeared in all three places.
+
 ## 2026-08-30 — email templates as versioned files
 
 Moved both email templates out of template literals into real, versionable files
