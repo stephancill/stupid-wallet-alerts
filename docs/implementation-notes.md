@@ -5,8 +5,8 @@
 ## 2026-08-31 — skip ERC-20 dust notifications
 
 - **`shouldNotifyEmail` filter** (`src/worker/email.ts`): an event only triggers
-  a notification email when we can ascribe more than $0.01 of value to the
-  received ERC-20 tokens. Receipts of worthless / unpriced ERC-20s (≤ $0.01 or
+  a notification email when we can ascribe more than **$0.50** of value to the
+  received ERC-20 tokens. Receipts of worthless / unpriced ERC-20s (≤ $0.50 or
   with no resolvable price) are suppressed to cut airdrop/dust spam.
 - **Scope**: the filter runs in the webhook route (`routes/webhooks.ts`) after
   `enrichEvent`, gating the entire per-owner email loop. Any other activity still

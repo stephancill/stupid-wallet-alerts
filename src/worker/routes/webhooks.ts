@@ -43,7 +43,7 @@ webhookRoute.post("/", async (c) => {
     const resolved = await enrichEvent(c.env, data).catch(() => ({
       effects: [],
     }));
-    // Drop pure ERC-20 dust (≤ $0.01 received) so worthless token receipts don't spam.
+    // Drop pure ERC-20 dust (≤ $0.50 received) so worthless token receipts don't spam.
     if (shouldNotifyEmail(data, resolved)) {
       const owners = await ownerOfWallet(c.env.WA_DB, data.trackedAddress.toLowerCase());
       for (const owner of owners) {

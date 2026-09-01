@@ -216,7 +216,7 @@ export async function enrichEvent(
  * Minimum USD value we must be able to ascribe to received ERC-20 tokens before
  * we email about an event. Rejects dust / unpriced ERC-20 receipt spam.
  */
-const MIN_RECEIVED_VALUE_USD = 0.01;
+const MIN_RECEIVED_VALUE_USD = 0.5;
 
 /**
  * Decide whether an event warrants an email. We skip pure ERC-20 dust: if the
