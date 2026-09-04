@@ -2,6 +2,22 @@
 
 > Vetted as public documentation — do not include personal info.
 
+## 2026-09-04 — broaden the $0.50 threshold to the event's total value
+
+- The suppressions threshold in **`shouldNotifyEmail`** (`src/worker/email.ts`)
+  used to gate only **received ERC-20** legs, so an event carrying a tiny native
+  value, outgoing, or ERC-721 leg still emailed (a ~$0.10 native-value leg
+  alongside dust beamed a notification through).
+  - Constant renamed `MIN_RECEIVED_VALUE_USD` → `MIN_EVENT_VALUE_USD` and the
+    rule is now *event-level*: an email fires only when the combined USD value
+    of **every priced leg** (native, incoming, outgoing; ERC-20) exceeds $0.50.
+  - Unpriced legs (obscure ERC-20s, NFTs) contribute $0 and matter only when a
+    priced leg clears the bar. Events with no resolvable value are suppressed.
+  - Enrichment-failure fallback retained: if we couldn't resolve any legs but the
+    tx demonstrably moved raw native value, we still notify.
+- The webhook route comment updated to match ("drop dust events ≤ $0.50 total
+  priced value").
+
 ## 2026-08-31 — skip ERC-20 dust notifications
 
 - **`shouldNotifyEmail` filter** (`src/worker/email.ts`): an event only triggers

@@ -213,17 +213,19 @@ export async function enrichEvent(
 }
 
 /**
- * Minimum USD value we must be able to ascribe to received ERC-20 tokens before
- * we email about an event. Rejects dust / unpriced ERC-20 receipt spam.
+ * Minimum combined USD value the event must carry (across every leg we can
+ * price — native, incoming & outgoing ERC-20s) before we email about it.
+ * Rejects dust activity: tiny token receipts, unpriced airdrops, micro native
+ * value, etc.
  */
-const MIN_RECEIVED_VALUE_USD = 0.5;
+const MIN_EVENT_VALUE_USD = 0.5;
 
 /**
- * Decide whether an event warrants an email. We skip pure ERC-20 dust: if the
- * only legs are received ERC-20 tokens totalling ≤ $0.01 (or unpriced), there's
- * nothing worth notifying. Any other priced or non-ERC-20 activity — incoming
- * native value, outgoing legs, ERC-721s, or a received ERC-20 over the threshold
- * — still triggers a notification.
+ * Decide whether an event warrants an email. We only notify when the event's
+ * combined USD value across all priced legs exceeds the threshold. Unpriced
+ * legs (e.g. obscure tokens, NFTs) contribute $0 and only matter alongside a
+ * leg that actually prices above the bar. Below the threshold — or with no
+ * resolvable value at all — there's nothing worth notifying about.
  */
 export function shouldNotifyEmail(
   data: EventData,
@@ -231,6 +233,13 @@ export function shouldNotifyEmail(
 ): boolean {
   const effects = resolved?.effects ?? [];
   const native = resolved?.native;
+
+  if (effects.length === 0 && !native) {
+    // Enrichment gave us nothing (e.g. token lookups failed); still notify when
+    // the tx demonstrably moved raw native value so real activity isn't lost.
+    const rawValue = data.transaction?.value;
+    return !!rawValue && rawValue !== "0";
+  }
 
   // Full leg set, mirroring buildNotificationEmail.
   const legs: ResolvedEffect[] = [...effects];
@@ -244,20 +253,9 @@ export function shouldNotifyEmail(
     } as ResolvedEffect);
   }
 
-  if (legs.length === 0) {
-    // Couldn't resolve any legs; still notify when the tx moved raw native value.
-    const rawValue = data.transaction?.value;
-    return !!rawValue && rawValue !== "0";
-  }
-
-  // A leg is "meaningful" (triggers the email) unless it's a received ERC-20
-  // worth at most the threshold.
-  const meaningful = legs.some(
-    (l) =>
-      !(l.direction === "incoming" && l.kind === "erc20") ||
-      (l.usdValue ?? 0) > MIN_RECEIVED_VALUE_USD,
-  );
-  return meaningful;
+  // Total value across every priced leg. Unpriced legs contribute 0.
+  const totalUsd = legs.reduce((sum, l) => sum + (l.usdValue ?? 0), 0);
+  return totalUsd > MIN_EVENT_VALUE_USD;
 }
 
 /** Build the "X activity" notification email for a single event. */
